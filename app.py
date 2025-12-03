@@ -62,8 +62,39 @@ pipeline = model_bundle['pipeline']
 feature_cols = model_bundle['feature_cols']
 cluster_score_map = model_bundle['cluster_score_map']
 
+# ---------- ITINERARY SCORE ----------
+def compute_itinerary_score(itinerary_raw, row):
+    """
+    itinerary_raw: user text "Delhi, Agra, Jaipur"
+    row: operator row (with 'covered_regions' and 'description')
+    """
+    if not itinerary_raw or not isinstance(itinerary_raw, str):
+        return 0.0
+
+    text_blob = ""
+    for col in ['covered_regions', 'description', 'country']:
+        val = row.get(col)
+        if isinstance(val, str):
+            text_blob += " " + val.lower()
+
+    if not text_blob.strip():
+        return 0.0
+
+    # Split cities, normalize
+    cities = [c.strip().lower() for c in itinerary_raw.split(',') if c.strip()]
+    if not cities:
+        return 0.0
+
+    matches = 0
+    for city in cities:
+        if city in text_blob:
+            matches += 1
+
+    return matches / len(cities)
+
+
 # ---------- RECOMMENDATION ----------
-def recommend_operators(country, priority):
+def recommend_operators(country, priority, itinerary_raw):
     subset = df[df['country'] == country].copy()
     if subset.empty:
         return []
@@ -72,25 +103,33 @@ def recommend_operators(country, priority):
     max_bands = subset['band_count'].max() or 1
     subset['coverage_score'] = subset['band_count'] / max_bands
 
-    # Build feature matrix for ML clustering
+    # ML tech-maturity cluster
     X_sub = subset[feature_cols]
-
-    # Get cluster label per operator via ML model
     clusters = pipeline.predict(X_sub)
     subset['cluster'] = clusters
-
-    # Map each cluster to its global tech-maturity score
     subset['cluster_score'] = subset['cluster'].map(cluster_score_map)
 
-    # Combine scores based on user priority
+    # Itinerary match score
+    subset['itinerary_score'] = subset.apply(
+        lambda row: compute_itinerary_score(itinerary_raw, row), axis=1
+    )
+
+    # Combine scores based on priority (weights)
+    # All scores are approx 0–1
     if priority == 'coverage':
-        subset['final_score'] = 0.7 * subset['coverage_score'] + 0.3 * subset['cluster_score']
+        w_cov, w_tech, w_it = 0.6, 0.25, 0.15
     elif priority == '4g':
-        subset['final_score'] = 0.6 * subset['cluster_score'] + 0.4 * subset['coverage_score']
+        w_cov, w_tech, w_it = 0.3, 0.55, 0.15
     elif priority == '5g':
-        subset['final_score'] = 0.7 * subset['cluster_score'] + 0.3 * subset['coverage_score']
-    else:  # overall
-        subset['final_score'] = 0.5 * subset['cluster_score'] + 0.5 * subset['coverage_score']
+        w_cov, w_tech, w_it = 0.25, 0.6, 0.15
+    else:  # 'overall'
+        w_cov, w_tech, w_it = 0.4, 0.4, 0.2
+
+    subset['final_score'] = (
+        w_cov * subset['coverage_score'] +
+        w_tech * subset['cluster_score'] +
+        w_it * subset['itinerary_score']
+    )
 
     subset = subset.sort_values('final_score', ascending=False)
 
@@ -105,28 +144,34 @@ def recommend_operators(country, priority):
             "data_links": row.get('data_links'),
             "coverage_score": round(row.get('coverage_score', 0), 2),
             "cluster_score": round(row.get('cluster_score', 0), 2),
+            "itinerary_score": round(row.get('itinerary_score', 0), 2),
             "final_score": round(row.get('final_score', 0), 2),
         })
     return results
 
 
+# ---------- ROUTES ----------
 @app.route('/', methods=['GET', 'POST'])
 def index():
     selected_country = None
     selected_priority = "overall"
+    itinerary = ""
     recommendations = []
 
     if request.method == 'POST':
         selected_country = request.form.get('country')
         selected_priority = request.form.get('priority', 'overall')
+        itinerary = request.form.get('itinerary', "")
+
         if selected_country:
-            recommendations = recommend_operators(selected_country, selected_priority)
+            recommendations = recommend_operators(selected_country, selected_priority, itinerary)
 
     return render_template(
         'index.html',
         countries=countries,
         selected_country=selected_country,
         selected_priority=selected_priority,
+        itinerary=itinerary,
         recommendations=recommendations
     )
 
