@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>TravelSIM Advisor · Telecom AI for Tourists</title>
+    <link rel="stylesheet" href="{{ url_for('static', filename='style.css') }}">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+</head>
+<body>
+<div class="page">
+    <nav class="nav">
+        <div class="nav-logo">TravelSIM<span>Advisor</span></div>
+        <div class="nav-tagline">ML-powered mobile operator picks for your trip</div>
+    </nav>
+
+    <main class="main">
+        <section class="hero">
+            <div class="hero-text">
+                <h1>Find the best mobile network<br><span>for your next trip abroad.</span></h1>
+                <p class="subtitle">
+                    Choose your destination, add your itinerary cities, tell us what you care about
+                    (coverage / 4G / 5G), and get smart operator recommendations built on real telecom data.
+                </p>
+                <ul class="highlights">
+                    <li>✈️ Designed for tourists, digital nomads, and business travelers</li>
+                    <li>📶 Considers network tech (2G/3G/4G/5G) and spectrum bands</li>
+                    <li>🧠 Uses an ML clustering model to score network maturity</li>
+                </ul>
+            </div>
+
+            <div class="hero-panel glass">
+                <h2>Plan your connectivity</h2>
+                <form method="POST" class="form">
+                    <label for="country">Destination country</label>
+                    <select name="country" id="country" required>
+                        <option value="">Select a country</option>
+                        {% for c in countries %}
+                            <option value="{{ c }}" {% if selected_country == c %}selected{% endif %}>{{ c }}</option>
+                        {% endfor %}
+                    </select>
+
+                    <label for="itinerary">Cities in your itinerary</label>
+                    <input
+                        type="text"
+                        id="itinerary"
+                        name="itinerary"
+                        placeholder="Example: Delhi, Agra, Jaipur"
+                        value="{{ itinerary or '' }}"
+                        style="border-radius:999px;border:1px solid var(--border-subtle);padding:8px 12px;background:rgba(15,23,42,0.9);color:var(--text-main);font-size:0.9rem;outline:none;"
+                    >
+
+                    <label for="priority">What matters most for this trip?</label>
+                    <div class="priority-options">
+                        <label class="priority-pill">
+                            <input type="radio" name="priority" value="overall"
+                                   {% if selected_priority == 'overall' %}checked{% endif %}>
+                            <span>Best Overall</span>
+                        </label>
+                        <label class="priority-pill">
+                            <input type="radio" name="priority" value="coverage"
+                                   {% if selected_priority == 'coverage' %}checked{% endif %}>
+                            <span>Coverage</span>
+                        </label>
+                        <label class="priority-pill">
+                            <input type="radio" name="priority" value="4g"
+                                   {% if selected_priority == '4g' %}checked{% endif %}>
+                            <span>4G Experience</span>
+                        </label>
+                        <label class="priority-pill">
+                            <input type="radio" name="priority" value="5g"
+                                   {% if selected_priority == '5g' %}checked{% endif %}>
+                            <span>5G Readiness</span>
+                        </label>
+                    </div>
+
+                    <button type="submit" class="btn-primary">Get tourist-friendly picks</button>
+
+                    <p class="hint">
+                        No login, no data stored. Just a lightweight ML model ranking operators for your itinerary.
+                    </p>
+                </form>
+            </div>
+        </section>
+
+        {% if recommendations %}
+        <section class="results">
+            <h2>Recommended operators for <span>{{ selected_country }}</span></h2>
+            <p class="results-subtitle">
+                {% if itinerary %}
+                    Itinerary: <strong>{{ itinerary }}</strong> ·
+                {% endif %}
+                Priority:
+                <strong>
+                    {% if selected_priority == 'overall' %}Best Overall Network
+                    {% elif selected_priority == 'coverage' %}Coverage & Band Richness
+                    {% elif selected_priority == '4g' %}4G Experience
+                    {% elif selected_priority == '5g' %}5G & Future Readiness
+                    {% endif %}
+                </strong>
+            </p>
+
+            <div class="cards">
+                {% for op in recommendations %}
+                <article class="card glass">
+                    <header class="card-header">
+                        <h3>{{ op.full_name }}</h3>
+                        {% if op.short_name %}
+                        <span class="badge">{{ op.short_name }}</span>
+                        {% endif %}
+                    </header>
+                    {% if op.hq %}
+                    <p class="meta">Headquarters: <strong>{{ op.hq }}</strong></p>
+                    {% endif %}
+                    {% if op.description %}
+                    <p class="description">{{ op.description }}</p>
+                    {% endif %}
+
+                    <div class="chips">
+                        {% if op.networks %}
+                        <div class="chip">
+                            <span>Networks</span>
+                            <p>{{ op.networks }}</p>
+                        </div>
+                        {% endif %}
+                        {% if op.data_links %}
+                        <div class="chip">
+                            <span>Data Links</span>
+                            <p>{{ op.data_links }}</p>
+                        </div>
+                        {% endif %}
+                    </div>
+
+                    <footer class="scores">
+                        <div class="score">
+                            <span>Coverage score</span>
+                            <div class="bar">
+                                <div class="bar-fill" style="width: {{ op.coverage_score * 100 }}%"></div>
+                            </div>
+                            <span class="score-value">{{ op.coverage_score }}</span>
+                        </div>
+                        <div class="score">
+                            <span>ML tech maturity</span>
+                            <div class="bar">
+                                <div class="bar-fill tech" style="width: {{ op.cluster_score * 100 }}%"></div>
+                            </div>
+                            <span class="score-value">{{ op.cluster_score }}</span>
+                        </div>
+                        <div class="score">
+                            <span>Itinerary match</span>
+                            <div class="bar">
+                                <div class="bar-fill" style="width: {{ op.itinerary_score * 100 }}%"></div>
+                            </div>
+                            <span class="score-value">{{ op.itinerary_score }}</span>
+                        </div>
+                    </footer>
+                </article>
+                {% endfor %}
+            </div>
+        </section>
+        {% elif selected_country %}
+        <section class="results">
+            <h2>No operators found for {{ selected_country }}</h2>
+            <p class="results-subtitle">
+                Try a different country or extend the dataset for more granular coverage.
+            </p>
+        </section>
+        {% endif %}
+    </main>
+
+    <footer class="footer">
+        Built for travelers · ML-powered operator recommendations · Deployed on Render
+    </footer>
+</div>
+</body>
+</html>
